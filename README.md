@@ -16,7 +16,7 @@
   <img src="docs/panel-dark.png" width="330" alt="下拉面板 · 深色">
 </p>
 
-![设置 · 菜单栏](docs/settings-bar.png)
+![设置 · 菜单栏](docs/settings-bar-dark.png)
 
 <p align="center">
   <img src="docs/picker-dark.png" width="330" alt="添加时区">
