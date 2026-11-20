@@ -1137,6 +1137,19 @@ if let i = CommandLine.arguments.firstIndex(of: "--snapshot"), i + 1 < CommandLi
     exit(0)
 }
 
+// 开发用：TimeChange --self-update，立即检查并安装更新（测试更新流程）
+if CommandLine.arguments.contains("--self-update") {
+    _ = NSApplication.shared
+    let up = Updater.shared
+    up.check()
+    Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+        if up.available != nil, !up.busy { print("found v\(up.available!.version), installing"); up.install() }
+        if !up.status.isEmpty { print(up.status) }
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 60) { print("timeout"); exit(1) }
+    NSApplication.shared.run()
+}
+
 // 只允许运行一个 TimeChange：已在运行就让它打开设置，自己退出
 if let me = Bundle.main.bundleIdentifier,
    NSRunningApplication.runningApplications(withBundleIdentifier: me).contains(where: { $0 != NSRunningApplication.current }) {
