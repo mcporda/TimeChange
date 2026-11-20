@@ -6,21 +6,13 @@
 
 [English](#english) · **[⬇ 下载最新版 DMG](https://github.com/mcporda/TimeChange/releases/latest)**
 
+![TimeChange：菜单栏时间 + 下拉面板 + 设置窗口](docs/showcase-hero.png)
+
+![浅色 / 深色下拉面板与时区选择](docs/showcase-trio.png)
+
 <p align="center">
-  <img src="docs/menubar.png" width="600" alt="菜单栏效果：右上角显示自选时区的时间，系统时钟缩成小表盘">
+  <img src="docs/menubar.png" width="520" alt="菜单栏实拍">
   <br><sub>实拍菜单栏：TimeChange 的时间与系统原生样式一致，系统时钟缩成最右侧的小表盘</sub>
-</p>
-
-<p align="center">
-  <img src="docs/panel.png" width="330" alt="下拉面板 · 浅色">
-  <img src="docs/panel-dark.png" width="330" alt="下拉面板 · 深色">
-</p>
-
-![设置 · 菜单栏](docs/settings-bar-dark.png)
-
-<p align="center">
-  <img src="docs/picker-dark.png" width="330" alt="添加时区">
-  <img src="docs/settings-general-dark.png" width="520" alt="设置 · 外观">
 </p>
 
 ## 功能

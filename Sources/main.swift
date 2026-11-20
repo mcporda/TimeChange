@@ -558,6 +558,9 @@ if let i = CommandLine.arguments.firstIndex(of: "--snapshot"), i + 1 < CommandLi
         snapshot(AnyView(ZonePicker(mode: .add, close: {}).environmentObject(store)), NSSize(width: 440, height: 600),
                  dir + "/picker\(suffix).png", dark: dark)
     }
+    snapshot(AnyView(ShowcaseHero(dark: true)), NSSize(width: 1400, height: 860), dir + "/showcase-hero.png", dark: true)
+    snapshot(AnyView(ShowcaseHero(dark: false)), NSSize(width: 1400, height: 860), dir + "/showcase-hero-light.png", dark: false)
+    snapshot(AnyView(ShowcaseTrio()), NSSize(width: 1400, height: 640), dir + "/showcase-trio.png", dark: true)
     exit(0)
 }
 

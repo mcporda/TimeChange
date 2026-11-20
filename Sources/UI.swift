@@ -833,3 +833,94 @@ struct UpdatePage: View {
         }
     }
 }
+
+// MARK: - README 展示图（开发用，--snapshot 时渲染）
+
+struct ShowcaseBackdrop: View {
+    let dark: Bool
+    var body: some View {
+        let base = dark ? Color(red: 0.12, green: 0.10, blue: 0.09) : Color(red: 0.91, green: 0.83, blue: 0.73)
+        let warm = dark ? Color(red: 0.62, green: 0.34, blue: 0.15) : Color(red: 0.93, green: 0.58, blue: 0.33)
+        let cool = dark ? Color(red: 0.17, green: 0.30, blue: 0.50) : Color(red: 0.55, green: 0.72, blue: 0.90)
+        ZStack {
+            Rectangle().fill(base)
+            Rectangle().fill(RadialGradient(colors: [warm.opacity(0.85), warm.opacity(0)], center: UnitPoint(x: 0.12, y: 0.95), startRadius: 0, endRadius: 720))
+            Rectangle().fill(RadialGradient(colors: [cool.opacity(0.8), cool.opacity(0)], center: UnitPoint(x: 0.92, y: 0.05), startRadius: 0, endRadius: 640))
+        }
+    }
+}
+
+/// 菜单栏 + 下拉面板 + 设置窗口，拼成一张桌面
+struct ShowcaseHero: View {
+    let dark: Bool
+    var body: some View {
+        let s = Store.shared.s
+        let (_, main, _) = Fmt.bar(Date(), s)
+        ZStack(alignment: .topLeading) {
+            ShowcaseBackdrop(dark: dark)
+
+            // 菜单栏
+            HStack(spacing: 18) {
+                Image(systemName: "apple.logo").font(.system(size: 14))
+                Text("TimeChange").font(.system(size: 13, weight: .bold))
+                Spacer()
+                Image(systemName: "wifi")
+                Image(systemName: "battery.100percent")
+                Image(systemName: "magnifyingglass")
+                Text(main).font(.system(size: 13).monospacedDigit())
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(0.22)))
+                Image(systemName: "switch.2")
+                MiniSystemIcon().environment(\.colorScheme, .dark)
+            }
+            .font(.system(size: 13)).foregroundStyle(.white)
+            .padding(.horizontal, 18).frame(height: 30)
+            .background(Color.black.opacity(dark ? 0.25 : 0.12))
+
+            // 设置窗口
+            ZStack(alignment: .topLeading) {
+                SettingsRoot().environmentObject(Store.shared).environmentObject(SettingsNav())
+                HStack(spacing: 8) {
+                    Circle().fill(Color(hex: "FF5F57")); Circle().fill(Color(hex: "FEBC2E")); Circle().fill(Color(hex: "28C840"))
+                }
+                .frame(width: 52, height: 12).padding(.leading, 18).padding(.top, 18)
+            }
+            .frame(width: 980, height: 660)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.white.opacity(dark ? 0.12 : 0.5), lineWidth: 0.5))
+            .shadow(color: .black.opacity(0.35), radius: 40, y: 20)
+            .offset(x: 44, y: 104)
+
+            // 下拉面板，挂在菜单栏时间下面
+            PanelView(store: Store.shared, onSettings: {}, onAdd: {}, onQuit: {})
+                .shadow(color: .black.opacity(0.35), radius: 30, y: 14)
+                .offset(x: 1400 - 272 - 44, y: 36)
+        }
+        .frame(width: 1400, height: 860)
+        .environment(\.colorScheme, dark ? .dark : .light)
+    }
+}
+
+/// 浅色面板 + 深色面板 + 时区选择
+struct ShowcaseTrio: View {
+    var body: some View {
+        ZStack {
+            ShowcaseBackdrop(dark: true)
+            HStack(alignment: .center, spacing: 48) {
+                PanelView(store: Store.shared, onSettings: {}, onAdd: {}, onQuit: {})
+                    .environment(\.colorScheme, .light)
+                    .shadow(color: .black.opacity(0.3), radius: 24, y: 12)
+                PanelView(store: Store.shared, onSettings: {}, onAdd: {}, onQuit: {})
+                    .environment(\.colorScheme, .dark)
+                    .shadow(color: .black.opacity(0.3), radius: 24, y: 12)
+                ZonePicker(mode: .add, close: {}).environmentObject(Store.shared)
+                    .frame(height: 520, alignment: .top).clipped()
+                    .mask(LinearGradient(stops: [.init(color: .black, location: 0.86), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .environment(\.colorScheme, .dark)
+                    .shadow(color: .black.opacity(0.3), radius: 24, y: 12)
+            }
+        }
+        .frame(width: 1400, height: 640)
+    }
+}
