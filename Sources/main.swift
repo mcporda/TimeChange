@@ -280,6 +280,7 @@ func clockSub(_ c: ClockEntry, _ now: Date) -> String {
 
 struct PanelView: View {
     @ObservedObject var store: Store
+    @ObservedObject var updater = Updater.shared
     var onSettings: () -> Void
     var onAdd: () -> Void
     var onQuit: () -> Void
@@ -303,6 +304,9 @@ struct PanelView: View {
 
                 Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1).padding(.horizontal, 4)
                 VStack(spacing: 0) {
+                    if let r = updater.available {
+                        PanelRow(title: updater.busy ? "正在更新…" : "更新到 v\(r.version)", accent: true) { updater.install() }
+                    }
                     PanelRow(title: "添加时区…", action: onAdd)
                     PanelRow(title: "设置…", action: onSettings)
                     PanelRow(title: "退出 TimeChange", action: onQuit)
@@ -357,11 +361,13 @@ struct ClockCard: View {
 
 struct PanelRow: View {
     let title: String
+    var accent = false
     let action: () -> Void
     @State private var hover = false
     var body: some View {
         Button(action: action) {
-            Text(title).font(.system(size: 13))
+            Text(title).font(.system(size: 13, weight: accent ? .semibold : .regular))
+                .foregroundStyle(accent ? UI.accent : UI.text)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 8).padding(.vertical, 4)
                 .background(RoundedRectangle(cornerRadius: 6).fill(hover ? Color.white.opacity(0.1) : .clear))
@@ -401,6 +407,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         refresh()
         scheduleTimer()
+        Updater.shared.startAutoCheck()
         if store.s.hidesSystemClock { SystemClock.shrink() }
     }
 
@@ -562,7 +569,7 @@ struct Sidebar: View {
                     Dial(tz: .current, now: tl.date, size: 34, ticks: false)
                     VStack(alignment: .leading, spacing: 0) {
                         Text("TimeChange").font(.system(size: 14, weight: .semibold))
-                        Text("1.0").font(.system(size: 11)).foregroundStyle(UI.sub)
+                        Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0").font(.system(size: 11)).foregroundStyle(UI.sub)
                     }
                 }
                 .padding(.horizontal, 6).padding(.bottom, 16)
@@ -876,6 +883,162 @@ struct ClocksPage: View {
     }
 }
 
+// MARK: - 自动更新（从 GitHub Releases 检查新版本，一键下载 DMG 并替换自身）
+
+final class Updater: ObservableObject {
+    static let shared = Updater()
+    static let repo = "mcporda/TimeChange"
+
+    struct Release { let version: String; let dmg: URL?; let page: URL }
+
+    @Published var available: Release?
+    @Published var status = ""
+    @Published var busy = false
+    private var timer: Timer?
+
+    static var current: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+    }
+
+    static func newer(_ a: String, than b: String) -> Bool {
+        let x = a.split(separator: ".").map { Int($0) ?? 0 }, y = b.split(separator: ".").map { Int($0) ?? 0 }
+        for i in 0..<max(x.count, y.count) {
+            let l = i < x.count ? x[i] : 0, r = i < y.count ? y[i] : 0
+            if l != r { return l > r }
+        }
+        return false
+    }
+
+    var autoCheck: Bool {
+        get { UserDefaults.standard.object(forKey: "autoCheckUpdates") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "autoCheckUpdates"); objectWillChange.send() }
+    }
+
+    func startAutoCheck() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+            guard let self, self.autoCheck else { return }
+            self.check(silent: true)
+        }
+        timer = Timer.scheduledTimer(withTimeInterval: 24 * 3600, repeats: true) { [weak self] _ in
+            guard let self, self.autoCheck else { return }
+            self.check(silent: true)
+        }
+    }
+
+    func check(silent: Bool = false) {
+        guard !busy else { return }
+        if !silent { status = "正在检查…" }
+        var req = URLRequest(url: URL(string: "https://api.github.com/repos/\(Self.repo)/releases/latest")!)
+        req.setValue("TimeChange-Updater", forHTTPHeaderField: "User-Agent")
+        req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        URLSession.shared.dataTask(with: req) { data, _, err in
+            var rel: Release?
+            if let data, let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let tag = j["tag_name"] as? String, let page = (j["html_url"] as? String).flatMap(URL.init(string:)) {
+                let v = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+                let assets = j["assets"] as? [[String: Any]] ?? []
+                let dmg = assets.first { ($0["name"] as? String)?.hasSuffix(".dmg") == true }?["browser_download_url"] as? String
+                rel = Release(version: v, dmg: dmg.flatMap(URL.init(string:)), page: page)
+            }
+            DispatchQueue.main.async {
+                if let r = rel, Self.newer(r.version, than: Self.current) {
+                    self.available = r
+                    self.status = "发现新版本 v\(r.version)"
+                } else if rel != nil {
+                    self.available = nil
+                    if !silent { self.status = "已是最新版本（v\(Self.current)）" }
+                } else if !silent {
+                    self.status = "检查失败：\(err?.localizedDescription ?? "无法连接 GitHub")"
+                }
+            }
+        }.resume()
+    }
+
+    /// 下载 DMG → 挂载 → 复制新 App → 退出后替换自身并重新打开
+    func install() {
+        guard let r = available, let dmgURL = r.dmg, !busy else { if let r = available { NSWorkspace.shared.open(r.page) }; return }
+        busy = true
+        status = "正在下载 v\(r.version)…"
+        URLSession.shared.downloadTask(with: dmgURL) { tmp, _, err in
+            guard let tmp else { return self.fail(err?.localizedDescription ?? "下载失败") }
+            let work = FileManager.default.temporaryDirectory.appendingPathComponent("TimeChange-update-\(UUID().uuidString)")
+            try? FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+            let dmg = work.appendingPathComponent("update.dmg")
+            do { try FileManager.default.moveItem(at: tmp, to: dmg) } catch { return self.fail("保存失败") }
+            DispatchQueue.main.async { self.status = "正在安装…" }
+            let newApp = work.appendingPathComponent("TimeChange.app").path
+            let prep = """
+            set -e
+            M=$(hdiutil attach -nobrowse -readonly '\(dmg.path)' | tail -1 | awk -F'\\t' '{print $NF}')
+            ditto "$M/TimeChange.app" '\(newApp)'
+            hdiutil detach -quiet "$M" || true
+            xattr -dr com.apple.quarantine '\(newApp)' 2>/dev/null || true
+            """
+            guard Self.sh(prep) == 0, FileManager.default.fileExists(atPath: newApp) else { return self.fail("安装包解压失败") }
+            let target = Bundle.main.bundlePath
+            guard FileManager.default.isWritableFile(atPath: (target as NSString).deletingLastPathComponent) else {
+                DispatchQueue.main.async { NSWorkspace.shared.open(r.page) }
+                return self.fail("没有写入权限，已打开下载页面，请手动替换")
+            }
+            let pid = ProcessInfo.processInfo.processIdentifier
+            let swap = """
+            while kill -0 \(pid) 2>/dev/null; do sleep 0.2; done
+            rm -rf '\(target)' && mv '\(newApp)' '\(target)' && open '\(target)'
+            rm -rf '\(work.path)'
+            """
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/bin/sh")
+            p.arguments = ["-c", swap]
+            try? p.run()
+            DispatchQueue.main.async { NSApp.terminate(nil) }
+        }.resume()
+    }
+
+    private func fail(_ msg: String) {
+        DispatchQueue.main.async { self.busy = false; self.status = msg }
+    }
+
+    @discardableResult static func sh(_ cmd: String) -> Int32 {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = ["-c", cmd]
+        try? p.run(); p.waitUntilExit()
+        return p.terminationStatus
+    }
+}
+
+struct UpdateCard: View {
+    @ObservedObject var up = Updater.shared
+    var body: some View {
+        CardBox {
+            HStack {
+                SectionTitle(t: "更新")
+                Spacer()
+                Text("当前版本 v\(Updater.current)").font(.system(size: 11)).foregroundStyle(UI.sub)
+            }
+            Toggle("自动检查更新", isOn: Binding(get: { up.autoCheck }, set: { up.autoCheck = $0 })).toggleStyle(OrangeSwitch())
+            HStack(spacing: 10) {
+                if let r = up.available {
+                    Button { up.install() } label: {
+                        Text(up.busy ? "更新中…" : "更新到 v\(r.version)").font(.system(size: 12, weight: .medium))
+                            .padding(.horizontal, 12).padding(.vertical, 6)
+                            .background(Capsule().fill(UI.accent)).foregroundStyle(.white)
+                    }.buttonStyle(.plain).disabled(up.busy)
+                    Button("更新说明") { NSWorkspace.shared.open(r.page) }.buttonStyle(.plain)
+                        .font(.system(size: 12)).foregroundStyle(UI.sub)
+                } else {
+                    Button { up.check() } label: {
+                        Text("检查更新").font(.system(size: 12, weight: .medium))
+                            .padding(.horizontal, 12).padding(.vertical, 6)
+                            .background(Capsule().fill(Color.white.opacity(0.08)))
+                    }.buttonStyle(.plain)
+                }
+                Text(up.status).font(.system(size: 11)).foregroundStyle(UI.sub)
+            }
+        }
+    }
+}
+
 struct GeneralPage: View {
     @EnvironmentObject var store: Store
     var body: some View {
@@ -889,6 +1052,7 @@ struct GeneralPage: View {
                 LoginToggle()
             }
             .frame(maxWidth: 520)
+            UpdateCard().frame(maxWidth: 520)
             Text("提示：按住 ⌘ 拖动菜单栏上的时间，可以调整它的位置。")
                 .font(.system(size: 11)).foregroundStyle(UI.sub)
         }

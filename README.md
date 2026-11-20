@@ -26,11 +26,21 @@
 - **默认常用时区**：本机、上海、东京、伦敦，可任意添加、改名、排序、删除（支持中英文搜索城市）。
 - **格式开关**：日期、星期、秒、24 小时制。
 - **隐藏系统数字时钟**：运行时把系统时钟切换为「模拟」小图标，退出时自动恢复（只改显示样式）。
+- **自动更新**：从 GitHub Releases 检查新版本，一键更新。
 - **登录时启动**、只允许运行一个实例、不占用 Dock。
 
 ## 安装
 
-需要 macOS 14 及以上、Xcode 命令行工具（Swift 5.9+）。
+**下载安装（推荐）**：到 [Releases](https://github.com/mcporda/TimeChange/releases/latest) 下载 `TimeChange-x.y.z.dmg`，打开后把 TimeChange 拖进「应用程序」。支持 Apple 芯片和 Intel，需要 macOS 14 及以上。
+
+> 首次打开提示「无法验证开发者」：本项目暂未经过 Apple 公证。请在「应用程序」里**右键 TimeChange → 打开**，或执行：
+> ```bash
+> xattr -dr com.apple.quarantine /Applications/TimeChange.app
+> ```
+
+**自动更新**：TimeChange 每天会检查一次 GitHub 上的新版本。有更新时，下拉面板和「设置 → 通用」里会出现「更新到 vX.Y.Z」，点一下即可自动下载、替换并重启。
+
+**从源码构建**（需要 Xcode 命令行工具，Swift 5.9+）：
 
 ```bash
 git clone https://github.com/mcporda/TimeChange.git
@@ -38,8 +48,6 @@ cd TimeChange
 ./build.sh
 open ~/Applications/TimeChange.app
 ```
-
-`build.sh` 会编译并以 ad-hoc 签名生成 `TimeChange.app`，安装到 `~/Applications`。
 
 > 提示：按住 ⌘ 拖动菜单栏上的时间，可以调整它的位置。
 
@@ -59,6 +67,8 @@ open ~/Applications/TimeChange.app
 ```bash
 ./build.sh                                                     # 构建并安装
 ~/Applications/TimeChange.app/Contents/MacOS/TimeChange --snapshot docs   # 重新生成 README 截图
+./release.sh 1.1.0                                             # 打包通用 DMG（build/TimeChange-1.1.0.dmg）
+gh release create v1.1.0 build/TimeChange-1.1.0.dmg            # 发布后，用户端会自动收到更新
 ```
 
 欢迎提 Issue 和 PR。
@@ -82,4 +92,6 @@ TimeChange puts a native-looking clock in the menu bar that can show any time zo
 - Optionally shrinks the system clock to its analog icon while running, restored on quit
 - Launch at login, single instance, no Dock icon
 
-Build: `./build.sh` (macOS 14+, Swift 5.9+), then `open ~/Applications/TimeChange.app`.
+- Built-in updater: checks GitHub Releases daily, one-click update
+
+Install: download the DMG from [Releases](https://github.com/mcporda/TimeChange/releases/latest) and drag TimeChange to Applications (Apple silicon + Intel, macOS 14+). The app is not notarized yet — right-click → Open on first launch. Or build from source: `./build.sh`.
