@@ -4,7 +4,12 @@
 
 经常出差旅行？macOS 右上角的时间会自动切到当地，这是对的；但有时你又想看看家里、或者另一个国家现在几点。TimeChange 用一个和系统原生时钟外观一致的菜单栏时间替代它：你可以随时切换成任意时区显示，也可以同时显示两个时区，而**系统时区和系统时间完全不受影响**。
 
-[English](#english)
+[English](#english) · **[⬇ 下载最新版 DMG](https://github.com/mcporda/TimeChange/releases/latest)**
+
+<p align="center">
+  <img src="docs/menubar.png" width="600" alt="菜单栏效果：右上角显示自选时区的时间，系统时钟缩成小表盘">
+  <br><sub>实拍菜单栏：TimeChange 的时间与系统原生样式一致，系统时钟缩成最右侧的小表盘</sub>
+</p>
 
 <p align="center">
   <img src="docs/panel.png" width="360" alt="下拉面板">
@@ -33,10 +38,16 @@
 
 **下载安装（推荐）**：到 [Releases](https://github.com/mcporda/TimeChange/releases/latest) 下载 `TimeChange-x.y.z.dmg`，打开后把 TimeChange 拖进「应用程序」。支持 Apple 芯片和 Intel，需要 macOS 14 及以上。
 
-> 首次打开提示「无法验证开发者」：本项目暂未经过 Apple 公证。请在「应用程序」里**右键 TimeChange → 打开**，或执行：
-> ```bash
-> xattr -dr com.apple.quarantine /Applications/TimeChange.app
-> ```
+> [!WARNING]
+> **首次打开提示「无法验证开发者」/「已损坏」怎么办？**
+> 本项目暂未经过 Apple 公证（需要付费开发者账号），这是正常现象，任选一种方法即可：
+> 1. **终端执行一行命令（最简单）**：
+>    ```bash
+>    xattr -dr com.apple.quarantine /Applications/TimeChange.app
+>    ```
+> 2. **系统设置**：先双击打开一次 → 弹窗点「完成」→ 打开「系统设置 → 隐私与安全性」→ 拉到底部，在 TimeChange 旁点「**仍要打开**」→ 输入密码确认。
+>
+> 只需操作一次，之后的自动更新不会再提示。
 
 **自动更新**：TimeChange 每天会检查一次 GitHub 上的新版本。有更新时，下拉面板和「设置 → 通用」里会出现「更新到 vX.Y.Z」，点一下即可自动下载、替换并重启。
 
@@ -94,4 +105,4 @@ TimeChange puts a native-looking clock in the menu bar that can show any time zo
 
 - Built-in updater: checks GitHub Releases daily, one-click update
 
-Install: download the DMG from [Releases](https://github.com/mcporda/TimeChange/releases/latest) and drag TimeChange to Applications (Apple silicon + Intel, macOS 14+). The app is not notarized yet — right-click → Open on first launch. Or build from source: `./build.sh`.
+Install: download the DMG from [Releases](https://github.com/mcporda/TimeChange/releases/latest) and drag TimeChange to Applications (Apple silicon + Intel, macOS 14+). The app is not notarized yet. If macOS says it "cannot verify the developer", run `xattr -dr com.apple.quarantine /Applications/TimeChange.app`, or open System Settings → Privacy & Security and click **Open Anyway**. Or build from source: `./build.sh`.
