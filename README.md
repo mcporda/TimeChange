@@ -78,8 +78,7 @@ open ~/Applications/TimeChange.app
 ```bash
 ./build.sh                                                     # 构建并安装
 ~/Applications/TimeChange.app/Contents/MacOS/TimeChange --snapshot docs   # 重新生成 README 截图
-./release.sh 1.1.0                                             # 打包通用 DMG（build/TimeChange-1.1.0.dmg）
-gh release create v1.1.0 build/TimeChange-1.1.0.dmg            # 发布后，用户端会自动收到更新
+./publish.sh 1.1.0 "- 更新要点"                                # 一键发布：打包 DMG、打标签、推送、创建 Release，用户端自动收到更新
 ```
 
 欢迎提 Issue 和 PR。
