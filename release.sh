@@ -13,7 +13,7 @@ rm -rf "$OUT" "$DMG"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 for arch in arm64 x86_64; do
-  swiftc -O -swift-version 5 -target "$arch-apple-macos14" Sources/main.swift -o "$OUT/TimeChange-$arch"
+  swiftc -O -swift-version 5 -target "$arch-apple-macos14" Sources/*.swift -o "$OUT/TimeChange-$arch"
 done
 lipo -create "$OUT/TimeChange-arm64" "$OUT/TimeChange-x86_64" -output "$APP/Contents/MacOS/TimeChange"
 rm "$OUT/TimeChange-arm64" "$OUT/TimeChange-x86_64"

@@ -1,6 +1,6 @@
 # TimeChange
 
-macOS 菜单栏多时区时钟。全部代码在 `Sources/main.swift`（AppKit + SwiftUI，无依赖）。
+macOS 菜单栏多时区时钟。代码在 `Sources/`：`main.swift`（数据、格式化、菜单栏、更新、启动）和 `UI.swift`（SwiftUI 界面），无依赖。
 
 ## 构建
 - `./build.sh`：本机构建并安装到 `~/Applications/TimeChange.app`

@@ -12,12 +12,16 @@
 </p>
 
 <p align="center">
-  <img src="docs/panel.png" width="360" alt="下拉面板">
+  <img src="docs/panel.png" width="330" alt="下拉面板 · 浅色">
+  <img src="docs/panel-dark.png" width="330" alt="下拉面板 · 深色">
 </p>
 
 ![设置 · 菜单栏](docs/settings-bar.png)
 
-![设置 · 时钟](docs/settings-clocks.png)
+<p align="center">
+  <img src="docs/picker-dark.png" width="330" alt="添加时区">
+  <img src="docs/settings-general-dark.png" width="520" alt="设置 · 外观">
+</p>
 
 ## 功能
 
@@ -26,7 +30,9 @@
   - **原生一致**：和系统时钟一模一样，只是时区由你决定。
   - **双城并排**：`周五 03:38  19:38`，同时看两个时区，第二个时间淡色显示。
   - **一点提示**：显示的不是本机时间时，前面加一个橙色小点提醒。
-- **下拉面板**：点击菜单栏时间，弹出世界时钟卡片，昼夜表盘一目了然，点一下即可切换菜单栏显示的时区。
+- **iOS 风格毛玻璃界面**：下拉面板、时区选择、设置窗口统一风格，跟随系统浅色 / 深色，也可手动指定，并支持 6 种主题色。
+- **下拉面板**：点击菜单栏时间弹出世界时钟列表，昼夜表盘一目了然，点一下即可切换；顶部一排快捷开关切换日期 / 星期 / 秒 / 24 小时。
+- **时区选择**：本机、常用城市、全部时区分组显示，每个时区标出缩写、全称和当地现在几点，支持中英文搜索。
 - **本机时钟跟随系统**：旅行时自动切到当地时区。
 - **默认常用时区**：本机、上海、东京、伦敦，可任意添加、改名、排序、删除（支持中英文搜索城市）。
 - **格式开关**：日期、星期、秒、24 小时制。
@@ -66,7 +72,7 @@ open ~/Applications/TimeChange.app
 
 - 菜单栏项是一个 `NSStatusItem`，每秒对齐整秒刷新；时间用 `DateFormatter` 按所选时区格式化，从不调用任何修改系统时区 / 时间的 API。
 - 「隐藏系统数字时钟」只写入 `com.apple.menuextra.clock IsAnalog`（系统时钟的显示样式），并在退出时恢复原值。
-- 界面使用 SwiftUI，全部代码在 [`Sources/main.swift`](Sources/main.swift)，无第三方依赖。
+- 界面使用 SwiftUI，代码在 [`Sources/main.swift`](Sources/main.swift)（逻辑）和 [`Sources/UI.swift`](Sources/UI.swift)（界面），无第三方依赖。
 
 ## 已知限制
 
@@ -96,7 +102,9 @@ open ~/Applications/TimeChange.app
 TimeChange puts a native-looking clock in the menu bar that can show any time zone. Switch between your Mac's local time (which follows you as you travel), home, or any city, or show two zones side by side — without touching system settings.
 
 - Native-matching menu bar text, three styles: **Native**, **Dual**, **Dot hint**
-- Dropdown world-clock panel with day/night dials; click a card to switch
+- iOS-style frosted glass UI: light / dark / follow system, 6 accent colors
+- Dropdown world-clock list with day/night dials and quick format toggles
+- Time zone picker grouped by local / common / all, with abbreviations and current local time
 - Defaults: Local, Shanghai, Tokyo, London — add, rename, reorder, delete freely
 - Date / weekday / seconds / 24-hour toggles
 - Optionally shrinks the system clock to its analog icon while running, restored on quit

@@ -39,13 +39,22 @@ struct Settings: Codable, Equatable {
     var style: BarStyle?
     var homeId: UUID?
     var hideSystemClock: Bool?
+    // v4 新增
+    var appearance: String?   // "system" | "light" | "dark"
+    var accentHex: String?    // 主题色
+    var secondId: UUID?       // 双城并排的第二个时钟
 
     var barStyle: BarStyle { style ?? .native }
     var hidesSystemClock: Bool { hideSystemClock ?? true }
 
     var primary: ClockEntry? { clocks.first { $0.showInBar } ?? clocks.first }
     /// 双城并排的第二个时间：列表里主时钟之外的第一个
-    var secondary: ClockEntry? { clocks.first { $0.id != primary?.id } }
+    var secondary: ClockEntry? {
+        if let i = secondId, i != primary?.id, let c = clocks.first(where: { $0.id == i }) { return c }
+        return clocks.first { $0.id != primary?.id }
+    }
+    var appearanceMode: String { appearance ?? "dark" }   // 默认深色
+    var accent: String { accentHex ?? "FF9500" }
 }
 
 let zhCity: [String: String] = [
@@ -217,167 +226,6 @@ enum SystemClock {
     }
 }
 
-// MARK: - 视觉常量
-
-enum UI {
-    static let accent = Color(red: 0xE8 / 255, green: 0x83 / 255, blue: 0x3A / 255)
-    static let bg = Color(red: 0x1C / 255, green: 0x1C / 255, blue: 0x1F / 255)
-    static let sidebar = Color(red: 0x18 / 255, green: 0x18 / 255, blue: 0x1B / 255)
-    static let card = Color(red: 0x23 / 255, green: 0x23 / 255, blue: 0x27 / 255)
-    static let tile = Color(red: 0x2C / 255, green: 0x2C / 255, blue: 0x30 / 255)
-    static let text = Color(red: 0xEC / 255, green: 0xEC / 255, blue: 0xEF / 255)
-    static let sub = Color(red: 0x8E / 255, green: 0x8E / 255, blue: 0x93 / 255)
-    static let hair = Color.white.opacity(0.08)
-}
-
-/// 自绘表盘：白天白底、夜晚黑底，橙色中心点
-struct Dial: View {
-    let tz: TimeZone
-    let now: Date
-    var size: CGFloat = 64
-    var ticks = true
-
-    var body: some View {
-        let (h, m, _) = Fmt.hm(tz, now)
-        let day = h >= 7 && h < 19
-        Canvas { ctx, sz in
-            let r = min(sz.width, sz.height) / 2
-            let c = CGPoint(x: sz.width / 2, y: sz.height / 2)
-            let face = day ? Color(white: 0.96) : Color(red: 0.07, green: 0.07, blue: 0.08)
-            let hand = day ? Color(red: 0.11, green: 0.11, blue: 0.12) : Color(white: 0.96)
-            let tick = day ? Color(white: 0.72) : Color(white: 0.3)
-            ctx.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)), with: .color(face))
-            func line(_ angle: Double, _ from: CGFloat, _ to: CGFloat, _ w: CGFloat, _ col: Color) {
-                let a = angle * .pi / 180
-                var p = Path()
-                p.move(to: CGPoint(x: c.x + sin(a) * from, y: c.y - cos(a) * from))
-                p.addLine(to: CGPoint(x: c.x + sin(a) * to, y: c.y - cos(a) * to))
-                ctx.stroke(p, with: .color(col), style: StrokeStyle(lineWidth: w, lineCap: .round))
-            }
-            if ticks { for i in 0..<12 { line(Double(i) * 30, r * 0.78, r * 0.9, max(1, r * 0.06), tick) } }
-            line((Double(h % 12) + Double(m) / 60) * 30, 0, r * 0.47, max(1.6, r * 0.1), hand)
-            line(Double(m) * 6, 0, r * 0.73, max(1.2, r * 0.063), hand)
-            let d = max(3, r * 0.17)
-            ctx.fill(Path(ellipseIn: CGRect(x: c.x - d / 2, y: c.y - d / 2, width: d, height: d)), with: .color(UI.accent))
-        }
-        .frame(width: size, height: size)
-    }
-}
-
-func clockTitle(_ c: ClockEntry) -> String {
-    let city = cityName(c.tz)
-    return c.label == city ? c.label : "\(c.label) · \(city)"
-}
-
-func clockSub(_ c: ClockEntry, _ now: Date) -> String {
-    if c.isLocal { return cityName(kLocal) }
-    let d = Fmt.diff(c.timeZone, at: now).replacingOccurrences(of: " 小时", with: "h").replacingOccurrences(of: "与当地相同", with: "同本机")
-    let w = Fmt.dayWord(c.timeZone, now)
-    return w == "今天" ? d : "\(w) \(d)"
-}
-
-// MARK: - 下拉面板（面板 C：表盘卡片）
-
-struct PanelView: View {
-    @ObservedObject var store: Store
-    @ObservedObject var updater = Updater.shared
-    var onSettings: () -> Void
-    var onAdd: () -> Void
-    var onQuit: () -> Void
-
-    var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { tl in
-            let now = tl.date
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("世界时钟").font(.system(size: 12, weight: .semibold))
-                    Spacer()
-                    Text("点选切换菜单栏").font(.system(size: 11)).foregroundStyle(UI.sub)
-                }
-                .padding(.horizontal, 4).padding(.top, 2)
-
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 6) {
-                    ForEach(store.s.clocks) { c in
-                        ClockCard(c: c, now: now, selected: store.s.primary?.id == c.id) { store.select(c.id) }
-                    }
-                }
-
-                Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1).padding(.horizontal, 4)
-                VStack(spacing: 0) {
-                    if let r = updater.available {
-                        PanelRow(title: updater.busy ? "正在更新…" : "更新到 v\(r.version)", accent: true) { updater.install() }
-                    }
-                    PanelRow(title: "添加时区…", action: onAdd)
-                    PanelRow(title: "设置…", action: onSettings)
-                    PanelRow(title: "退出 TimeChange", action: onQuit)
-                }
-            }
-            .padding(8)
-            .frame(width: 320)
-            .foregroundStyle(UI.text)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(red: 0.11, green: 0.11, blue: 0.12).opacity(0.97))
-            )
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        }
-        .environment(\.colorScheme, .dark)
-        .focusEffectDisabled()
-    }
-}
-
-struct ClockCard: View {
-    let c: ClockEntry
-    let now: Date
-    let selected: Bool
-    let action: () -> Void
-    @State private var hover = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                Dial(tz: c.timeZone, now: now, size: 30, ticks: false)
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text(c.label).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                        Spacer(minLength: 0)
-                        Text(clockSub(c, now)).font(.system(size: 10)).foregroundStyle(UI.sub).lineLimit(1)
-                    }
-                    Text(Fmt.time(now, c.timeZone, Store.shared.s))
-                        .font(.system(size: 17, weight: .medium).monospacedDigit())
-                }
-            }
-            .padding(.horizontal, 10).padding(.vertical, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(hover ? Color(white: 0.21) : UI.tile))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(UI.accent, lineWidth: selected ? 1.5 : 0))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hover = $0 }
-        .animation(.easeOut(duration: 0.12), value: hover)
-    }
-}
-
-struct PanelRow: View {
-    let title: String
-    var accent = false
-    let action: () -> Void
-    @State private var hover = false
-    var body: some View {
-        Button(action: action) {
-            Text(title).font(.system(size: 13, weight: accent ? .semibold : .regular))
-                .foregroundStyle(accent ? UI.accent : UI.text)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 8).padding(.vertical, 4)
-                .background(RoundedRectangle(cornerRadius: 6).fill(hover ? Color.white.opacity(0.1) : .clear))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hover = $0 }
-    }
-}
-
 /// 无边框浮层，贴在菜单栏图标下方，点外面自动收起
 final class FloatingPanel: NSPanel {
     override var canBecomeKey: Bool { true }
@@ -405,6 +253,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(refresh), name: .NSSystemTimeZoneDidChange, object: nil)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(refresh), name: NSWorkspace.didWakeNotification, object: nil)
 
+        applyAppearance()
         refresh()
         scheduleTimer()
         Updater.shared.startAutoCheck()
@@ -417,7 +266,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         openSettings(); return true
     }
 
+    func applyAppearance() {
+        switch store.s.appearanceMode {
+        case "light": NSApp.appearance = NSAppearance(named: .aqua)
+        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+        default: NSApp.appearance = nil
+        }
+    }
+
     @objc func settingsChanged() {
+        applyAppearance()
         refresh()
         if store.s.hidesSystemClock { SystemClock.shrink() } else { SystemClock.restore() }
     }
@@ -470,6 +328,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                              onAdd: { [weak self] in self?.closePanel(); self?.nav.page = .clocks; self?.nav.addRequested = true; self?.openSettings() },
                              onQuit: { NSApp.terminate(nil) })
         let host = NSHostingView(rootView: view)
+        host.wantsLayer = true
+        host.layer?.backgroundColor = .clear
         host.layoutSubtreeIfNeeded()
         let size = host.fittingSize
         let p = panel ?? FloatingPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -477,6 +337,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         p.backgroundColor = .clear
         p.hasShadow = true
         p.level = .popUpMenu
+        p.appearance = NSApp.appearance
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         p.contentView = host
         let bf = bw.convertToScreen(button.convert(button.bounds, to: nil))
@@ -510,376 +371,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             w.titlebarAppearsTransparent = true
             w.titleVisibility = .hidden
             w.isMovableByWindowBackground = true
-            w.appearance = NSAppearance(named: .darkAqua)
-            w.backgroundColor = NSColor(red: 0x1C / 255, green: 0x1C / 255, blue: 0x1F / 255, alpha: 1)
+            w.isOpaque = false
+            w.backgroundColor = .clear
             w.isReleasedWhenClosed = false
-            w.contentViewController = NSHostingController(rootView: SettingsRoot().environmentObject(store).environmentObject(nav))
+            // 整个窗口（含标题栏区域）铺一层背后模糊的毛玻璃，SwiftUI 内容放在上面
+            let fx = NSVisualEffectView()
+            fx.material = .underWindowBackground
+            fx.blendingMode = .behindWindow
+            fx.state = .active
+            let host = NSHostingView(rootView: SettingsRoot().environmentObject(store).environmentObject(nav))
+            host.translatesAutoresizingMaskIntoConstraints = false
+            fx.addSubview(host)
+            NSLayoutConstraint.activate([
+                host.leadingAnchor.constraint(equalTo: fx.leadingAnchor),
+                host.trailingAnchor.constraint(equalTo: fx.trailingAnchor),
+                host.topAnchor.constraint(equalTo: fx.topAnchor),
+                host.bottomAnchor.constraint(equalTo: fx.bottomAnchor),
+            ])
+            w.contentView = fx
             w.setContentSize(NSSize(width: 980, height: 660))
             w.center()
             settingsWindow = w
         }
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
-    }
-}
-
-// MARK: - 设置界面
-
-final class SettingsNav: ObservableObject {
-    enum Page: String { case bar, clocks, general }
-    @Published var page: Page = .bar
-    @Published var addRequested = false
-}
-
-struct SettingsRoot: View {
-    @EnvironmentObject var store: Store
-    @EnvironmentObject var nav: SettingsNav
-
-    var body: some View {
-        HStack(spacing: 0) {
-            Sidebar()
-            ScrollView {
-                Group {
-                    switch nav.page {
-                    case .bar: BarPage()
-                    case .clocks: ClocksPage()
-                    case .general: GeneralPage()
-                    }
-                }
-                .padding(.horizontal, 28).padding(.top, 26).padding(.bottom, 28)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .frame(width: 980, height: 660)
-        .background(UI.bg)
-        .foregroundStyle(UI.text)
-        .environment(\.colorScheme, .dark)
-        .tint(UI.accent)
-        .focusEffectDisabled()
-    }
-}
-
-struct Sidebar: View {
-    @EnvironmentObject var nav: SettingsNav
-
-    var body: some View {
-        TimelineView(.periodic(from: .now, by: 30)) { tl in
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 10) {
-                    Dial(tz: .current, now: tl.date, size: 34, ticks: false)
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text("TimeChange").font(.system(size: 14, weight: .semibold))
-                        Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0").font(.system(size: 11)).foregroundStyle(UI.sub)
-                    }
-                }
-                .padding(.horizontal, 6).padding(.bottom, 16)
-                NavItem(icon: "menubar.rectangle", title: "菜单栏", page: .bar)
-                NavItem(icon: "clock", title: "时钟", page: .clocks)
-                NavItem(icon: "gearshape", title: "通用", page: .general)
-                Spacer()
-            }
-            .padding(.horizontal, 12).padding(.top, 52)
-            .frame(width: 208)
-            .frame(maxHeight: .infinity)
-            .background(UI.sidebar)
-            .overlay(alignment: .trailing) { Rectangle().fill(Color.white.opacity(0.06)).frame(width: 1) }
-        }
-    }
-}
-
-struct NavItem: View {
-    @EnvironmentObject var nav: SettingsNav
-    let icon: String, title: String, page: SettingsNav.Page
-    var body: some View {
-        let on = nav.page == page
-        Button { nav.page = page } label: {
-            HStack(spacing: 10) {
-                Image(systemName: icon).frame(width: 18).foregroundStyle(on ? UI.accent : UI.sub)
-                Text(title).font(.system(size: 13))
-                Spacer()
-            }
-            .padding(.horizontal, 10).padding(.vertical, 8)
-            .background(RoundedRectangle(cornerRadius: 8).fill(on ? UI.accent.opacity(0.18) : .clear))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-struct SectionTitle: View {
-    let t: String
-    var body: some View { Text(t).font(.system(size: 12, weight: .semibold)).foregroundStyle(Color(white: 0.63)).kerning(0.3) }
-}
-
-struct CardBox<Content: View>: View {
-    @ViewBuilder var content: Content
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) { content }
-            .padding(.horizontal, 16).padding(.vertical, 14)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(UI.card))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(UI.hair, lineWidth: 0.5))
-    }
-}
-
-struct Radio: View {
-    let on: Bool
-    var size: CGFloat = 16
-    var body: some View {
-        Circle().strokeBorder(on ? UI.accent : Color(white: 0.35), lineWidth: on ? size * 0.31 : 1.5)
-            .frame(width: size, height: size)
-    }
-}
-
-struct MiniSystemIcon: View {   // 菜单栏里系统小表盘的示意
-    var body: some View {
-        ZStack {
-            Circle().stroke(Color.white, lineWidth: 1.1)
-            Path { p in p.move(to: CGPoint(x: 7, y: 7)); p.addLine(to: CGPoint(x: 9.6, y: 8.6)) }
-                .stroke(Color.white, style: StrokeStyle(lineWidth: 1.3, lineCap: .round))
-        }
-        .frame(width: 14, height: 14)
-    }
-}
-
-struct BarPage: View {
-    @EnvironmentObject var store: Store
-
-    var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { tl in
-            let now = tl.date
-            VStack(alignment: .leading, spacing: 22) {
-                Text("菜单栏").font(.system(size: 20, weight: .semibold))
-
-                VStack(alignment: .leading, spacing: 10) {
-                    SectionTitle(t: "显示样式")
-                    HStack(spacing: 12) {
-                        ForEach(BarStyle.allCases) { st in StyleCard(style: st, now: now) }
-                    }
-                }
-
-                HStack(alignment: .top, spacing: 16) {
-                    CardBox {
-                        HStack {
-                            SectionTitle(t: "菜单栏显示哪个时钟")
-                            Spacer()
-                            Button("＋ 添加时区") { addClock() }
-                                .buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(UI.accent)
-                        }
-                        VStack(spacing: 0) {
-                            ForEach(store.s.clocks) { c in
-                                Button { store.select(c.id) } label: {
-                                    HStack(spacing: 12) {
-                                        Dial(tz: c.timeZone, now: now, size: 30, ticks: false)
-                                        VStack(alignment: .leading, spacing: 1) {
-                                            Text(c.label).font(.system(size: 13, weight: .semibold))
-                                            Text(c.isLocal ? "跟随系统 · 现在是\(cityName(kLocal))" : (c.label == cityName(c.tz) ? "" : "\(cityName(c.tz)) · ") + Fmt.diff(c.timeZone, at: now))
-                                                .font(.system(size: 11)).foregroundStyle(UI.sub)
-                                        }
-                                        Spacer()
-                                        Text(Fmt.time(now, c.timeZone, store.s)).font(.system(size: 15).monospacedDigit())
-                                        Radio(on: store.s.primary?.id == c.id, size: 18)
-                                    }
-                                    .padding(.vertical, 7)
-                                    .overlay(alignment: .top) { Rectangle().fill(Color.white.opacity(0.06)).frame(height: 1) }
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        if store.s.barStyle == .dual {
-                            Text("双城并排时，第二个时间显示「\(store.s.secondary?.label ?? "")」（列表中排在最前的另一个时钟，可在「时钟」里调整顺序）。")
-                                .font(.system(size: 11)).foregroundStyle(UI.sub)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .layoutPriority(1.3)
-
-                    CardBox {
-                        SectionTitle(t: "格式")
-                        Toggle("日期", isOn: $store.s.showDate).toggleStyle(OrangeSwitch())
-                        Toggle("星期", isOn: $store.s.showWeekday).toggleStyle(OrangeSwitch())
-                        Toggle("秒", isOn: $store.s.showSeconds).toggleStyle(OrangeSwitch())
-                        Toggle("24 小时制", isOn: $store.s.use24h).toggleStyle(OrangeSwitch())
-                        Rectangle().fill(UI.hair).frame(height: 1)
-                        Toggle("隐藏系统数字时钟", isOn: hideBinding(store)).toggleStyle(OrangeSwitch())
-                        LoginToggle()
-                    }
-                    .frame(width: 290)
-                }
-            }
-        }
-    }
-
-    func addClock() {
-        let e = ClockEntry(label: "新时钟", tz: "Europe/London", showInBar: false)
-        store.s.clocks.append(e)
-    }
-}
-
-func hideBinding(_ store: Store) -> Binding<Bool> {
-    Binding(get: { store.s.hidesSystemClock }, set: { store.s.hideSystemClock = $0 })
-}
-
-struct OrangeSwitch: ToggleStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        Button { configuration.isOn.toggle() } label: {
-            HStack {
-                configuration.label.font(.system(size: 13))
-                Spacer()
-                ZStack(alignment: configuration.isOn ? .trailing : .leading) {
-                    Capsule().fill(configuration.isOn ? UI.accent : Color(white: 0.23)).frame(width: 32, height: 19)
-                    Circle().fill(.white).frame(width: 15, height: 15).padding(2)
-                        .shadow(color: .black.opacity(0.25), radius: 1, y: 1)
-                }
-                .animation(.spring(response: 0.25, dampingFraction: 0.85), value: configuration.isOn)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-struct LoginToggle: View {
-    @State private var on = SMAppService.mainApp.status == .enabled
-    @State private var err = ""
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Toggle("登录时启动", isOn: $on).toggleStyle(OrangeSwitch())
-                .onChange(of: on) { _, v in
-                    do { v ? try SMAppService.mainApp.register() : try SMAppService.mainApp.unregister(); err = "" }
-                    catch { err = "设置失败：\(error.localizedDescription)" }
-                }
-            if !err.isEmpty { Text(err).font(.system(size: 11)).foregroundStyle(UI.sub) }
-        }
-    }
-}
-
-struct StyleCard: View {
-    @EnvironmentObject var store: Store
-    let style: BarStyle
-    let now: Date
-    @State private var hover = false
-
-    var body: some View {
-        var s = store.s
-        s.style = style
-        let (dot, main, second) = Fmt.bar(now, s)
-        let selected = store.s.barStyle == style
-        return Button { store.s.style = style } label: {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    Spacer(minLength: 0)
-                    if dot || style == .dot {
-                        Circle().fill(Color(red: 1, green: 0.62, blue: 0.26)).frame(width: 6, height: 6)
-                            .opacity(dot ? 1 : 0.35)
-                    }
-                    Text(main).font(.system(size: 13).monospacedDigit()).lineLimit(1)
-                    if let second { Text(second).font(.system(size: 13).monospacedDigit()).foregroundStyle(.white.opacity(0.62)) }
-                    MiniSystemIcon()
-                }
-                .frame(height: 52)
-                .overlay(alignment: .bottom) { Rectangle().fill(UI.hair).frame(height: 1) }
-                HStack {
-                    Text(style.title).font(.system(size: 13, weight: .semibold))
-                    Spacer()
-                    Radio(on: selected)
-                }
-                Text(style.desc).font(.system(size: 11)).foregroundStyle(UI.sub)
-            }
-            .padding(10)
-            .frame(maxWidth: .infinity)
-            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(hover ? Color(white: 0.17) : Color(red: 0x26 / 255, green: 0x26 / 255, blue: 0x2A / 255)))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(selected ? UI.accent : UI.hair, lineWidth: selected ? 2 : 0.5))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hover = $0 }
-    }
-}
-
-struct ClocksPage: View {
-    @EnvironmentObject var store: Store
-    @EnvironmentObject var nav: SettingsNav
-    @State private var picking: UUID?
-
-    var body: some View {
-        TimelineView(.periodic(from: .now, by: 30)) { tl in
-            VStack(alignment: .leading, spacing: 22) {
-                HStack {
-                    Text("时钟").font(.system(size: 20, weight: .semibold))
-                    Spacer()
-                    Button { add() } label: {
-                        Text("＋ 添加时区").font(.system(size: 13, weight: .medium))
-                            .padding(.horizontal, 12).padding(.vertical, 6)
-                            .background(Capsule().fill(UI.accent)).foregroundStyle(.white)
-                    }.buttonStyle(.plain)
-                }
-                CardBox {
-                    ForEach($store.s.clocks) { $c in
-                        HStack(spacing: 12) {
-                            Dial(tz: c.timeZone, now: tl.date, size: 30, ticks: false)
-                            TextField("名称", text: $c.label)
-                                .textFieldStyle(.plain).font(.system(size: 13, weight: .semibold))
-                                .padding(.horizontal, 8).padding(.vertical, 5)
-                                .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.06)))
-                                .frame(width: 110)
-                            Button { picking = c.id } label: {
-                                HStack(spacing: 6) {
-                                    Text(c.isLocal ? "本机（跟随系统）" : "\(cityName(c.tz)) · \(c.tz)").lineLimit(1)
-                                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 9))
-                                }
-                                .font(.system(size: 12))
-                                .padding(.horizontal, 10).padding(.vertical, 5)
-                                .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.06)))
-                            }.buttonStyle(.plain)
-                            Spacer()
-                            iconButton("chevron.up") { move(c.id, -1) }
-                            iconButton("chevron.down") { move(c.id, 1) }
-                            iconButton("trash") { store.s.clocks.removeAll { $0.id == c.id } }
-                                .disabled(store.s.clocks.count <= 1)
-                        }
-                        .padding(.vertical, 4)
-                    }
-                }
-                Text("「本机」跟随系统时区，出去旅行时自动切到当地；其他时钟固定在你选的时区。只改显示，不会更改系统时区和系统时间。")
-                    .font(.system(size: 11)).foregroundStyle(UI.sub)
-            }
-        }
-        .sheet(item: Binding(get: { picking.map { IDBox(id: $0) } }, set: { picking = $0?.id })) { box in
-            ZonePicker { tz in
-                if let i = store.s.clocks.firstIndex(where: { $0.id == box.id }) {
-                    store.s.clocks[i].tz = tz
-                    if ["新时钟", ""].contains(store.s.clocks[i].label) { store.s.clocks[i].label = cityName(tz) }
-                }
-                picking = nil
-            } cancel: { picking = nil }
-            .environment(\.colorScheme, .dark)
-        }
-        .onAppear { if nav.addRequested { nav.addRequested = false; add() } }
-        .onChange(of: nav.addRequested) { _, v in if v { nav.addRequested = false; add() } }
-    }
-
-    func iconButton(_ name: String, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: name).font(.system(size: 11)).foregroundStyle(UI.sub)
-                .frame(width: 24, height: 24)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.04)))
-        }.buttonStyle(.plain)
-    }
-
-    func add() {
-        let e = ClockEntry(label: "新时钟", tz: "Europe/London", showInBar: false)
-        store.s.clocks.append(e)
-        picking = e.id
-    }
-
-    func move(_ id: UUID, _ d: Int) {
-        guard let i = store.s.clocks.firstIndex(where: { $0.id == id }) else { return }
-        let j = i + d
-        guard store.s.clocks.indices.contains(j) else { return }
-        store.s.clocks.swapAt(i, j)
     }
 }
 
@@ -1007,112 +522,12 @@ final class Updater: ObservableObject {
     }
 }
 
-struct UpdateCard: View {
-    @ObservedObject var up = Updater.shared
-    var body: some View {
-        CardBox {
-            HStack {
-                SectionTitle(t: "更新")
-                Spacer()
-                Text("当前版本 v\(Updater.current)").font(.system(size: 11)).foregroundStyle(UI.sub)
-            }
-            Toggle("自动检查更新", isOn: Binding(get: { up.autoCheck }, set: { up.autoCheck = $0 })).toggleStyle(OrangeSwitch())
-            HStack(spacing: 10) {
-                if let r = up.available {
-                    Button { up.install() } label: {
-                        Text(up.busy ? "更新中…" : "更新到 v\(r.version)").font(.system(size: 12, weight: .medium))
-                            .padding(.horizontal, 12).padding(.vertical, 6)
-                            .background(Capsule().fill(UI.accent)).foregroundStyle(.white)
-                    }.buttonStyle(.plain).disabled(up.busy)
-                    Button("更新说明") { NSWorkspace.shared.open(r.page) }.buttonStyle(.plain)
-                        .font(.system(size: 12)).foregroundStyle(UI.sub)
-                } else {
-                    Button { up.check() } label: {
-                        Text("检查更新").font(.system(size: 12, weight: .medium))
-                            .padding(.horizontal, 12).padding(.vertical, 6)
-                            .background(Capsule().fill(Color.white.opacity(0.08)))
-                    }.buttonStyle(.plain)
-                }
-                Text(up.status).font(.system(size: 11)).foregroundStyle(UI.sub)
-            }
-        }
-    }
-}
-
-struct GeneralPage: View {
-    @EnvironmentObject var store: Store
-    var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            Text("通用").font(.system(size: 20, weight: .semibold))
-            CardBox {
-                Toggle("隐藏系统数字时钟", isOn: hideBinding(store)).toggleStyle(OrangeSwitch())
-                Text("运行时把系统自带的数字时钟缩成小表盘，退出 TimeChange 自动恢复。只改显示样式，不改时区和时间。")
-                    .font(.system(size: 11)).foregroundStyle(UI.sub)
-                Rectangle().fill(UI.hair).frame(height: 1)
-                LoginToggle()
-            }
-            .frame(maxWidth: 520)
-            UpdateCard().frame(maxWidth: 520)
-            Text("提示：按住 ⌘ 拖动菜单栏上的时间，可以调整它的位置。")
-                .font(.system(size: 11)).foregroundStyle(UI.sub)
-        }
-    }
-}
-
-struct IDBox: Identifiable { let id: UUID }
-
-struct ZonePicker: View {
-    var done: (String) -> Void
-    var cancel: () -> Void
-    @State private var q = ""
-    static let all: [(id: String, name: String)] = TimeZone.knownTimeZoneIdentifiers.map { id in
-        (id, TimeZone(identifier: id)?.localizedName(for: .generic, locale: Locale(identifier: "zh_CN")) ?? "")
-    }
-
-    var filtered: [(id: String, name: String)] {
-        let k = q.trimmingCharacters(in: .whitespaces).lowercased()
-        if k.isEmpty { return Self.all }
-        return Self.all.filter {
-            $0.id.lowercased().contains(k) || $0.name.lowercased().contains(k) || cityName($0.id).contains(k)
-        }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            TextField("搜索城市 / 国家 / 时区，例如 东京、上海、London", text: $q)
-                .textFieldStyle(.plain).font(.system(size: 13))
-                .padding(.horizontal, 10).padding(.vertical, 8)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.08)))
-            List {
-                Button { done(kLocal) } label: {
-                    Text("本机时间（跟随系统，旅行时自动切换）").bold().foregroundStyle(UI.accent)
-                }.buttonStyle(.plain)
-                ForEach(filtered, id: \.id) { z in
-                    Button { done(z.id) } label: {
-                        HStack {
-                            Text(cityName(z.id))
-                            Text(z.id).foregroundStyle(.secondary)
-                            Spacer()
-                            Text(Fmt.offset(TimeZone(identifier: z.id) ?? .current)).font(.caption).foregroundStyle(.secondary)
-                        }.contentShape(Rectangle())
-                    }.buttonStyle(.plain)
-                }
-            }
-            .scrollContentBackground(.hidden)
-            HStack { Spacer(); Button("取消", action: cancel).keyboardShortcut(.cancelAction) }
-        }
-        .padding(16)
-        .frame(width: 520, height: 480)
-        .background(UI.bg)
-    }
-}
-
 // MARK: - 截图（开发用：TimeChange --snapshot <目录>）
 
-func snapshot(_ view: some View, _ size: NSSize, _ path: String) {
+func snapshot(_ view: some View, _ size: NSSize, _ path: String, dark: Bool) {
     let host = NSHostingView(rootView: view)
     host.frame = NSRect(origin: .zero, size: size)
-    host.appearance = NSAppearance(named: .darkAqua)
+    host.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
     let w = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
     w.contentView = host
     host.layoutSubtreeIfNeeded()
@@ -1125,14 +540,23 @@ func snapshot(_ view: some View, _ size: NSSize, _ path: String) {
 if let i = CommandLine.arguments.firstIndex(of: "--snapshot"), i + 1 < CommandLine.arguments.count {
     let dir = CommandLine.arguments[i + 1]
     _ = NSApplication.shared
+    UI.snapshot = true
     let store = Store.shared
-    let panel = AnyView(PanelView(store: store, onSettings: {}, onAdd: {}, onQuit: {})
-        .padding(20).background(Color(red: 0.24, green: 0.33, blue: 0.47)))
-    let fit = NSHostingView(rootView: panel).fittingSize
-    snapshot(panel, NSSize(width: fit.width, height: fit.height), dir + "/panel.png")
-    for page in [SettingsNav.Page.bar, .clocks, .general] {
-        let nav = SettingsNav(); nav.page = page
-        snapshot(AnyView(SettingsRoot().environmentObject(store).environmentObject(nav)), NSSize(width: 980, height: 660), dir + "/settings-\(page.rawValue).png")
+    for dark in [false, true] {
+        let suffix = dark ? "-dark" : ""
+        let panel = AnyView(ZStack {
+            Rectangle().fill(dark ? Color(red: 0.23, green: 0.18, blue: 0.15) : Color(red: 0.85, green: 0.71, blue: 0.54))
+            PanelView(store: store, onSettings: {}, onAdd: {}, onQuit: {}).padding(28)
+        }.fixedSize())
+        let fit = NSHostingView(rootView: panel).fittingSize
+        snapshot(panel, fit, dir + "/panel\(suffix).png", dark: dark)
+        for page in [SettingsNav.Page.bar, .clocks, .general] {
+            let nav = SettingsNav(); nav.page = page
+            snapshot(AnyView(SettingsRoot().environmentObject(store).environmentObject(nav)), NSSize(width: 980, height: 660),
+                     dir + "/settings-\(page.rawValue)\(suffix).png", dark: dark)
+        }
+        snapshot(AnyView(ZonePicker(mode: .add, close: {}).environmentObject(store)), NSSize(width: 440, height: 600),
+                 dir + "/picker\(suffix).png", dark: dark)
     }
     exit(0)
 }
